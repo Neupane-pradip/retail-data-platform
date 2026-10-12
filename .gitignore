@@ -1,0 +1,17 @@
+# Python environment and generated files
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# IDE settings
+.idea/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Generated pipeline output
+logs/
+data/rejected/
