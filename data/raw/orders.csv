@@ -1,0 +1,6 @@
+order_id,customer_id,order_date,total_amount,status
+ORD001,CUST001,2026-10-01,49.90,completed
+ORD002,CUST002,2026-10-01,120.00,completed
+ORD003,CUST001,2026-10-02,35.50,cancelled
+ORD004,CUST003,2026-10-02,79.99,completed
+ORD005,CUST002,2026-10-03,25.00,refunded
