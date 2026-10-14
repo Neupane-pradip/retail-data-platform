@@ -1,113 +1,79 @@
 # Retail Data Platform
 
-A learning project that loads retail orders from CSV into PostgreSQL
-using Python.
+A data engineering learning project that turns retail order files into
+validated data stored in PostgreSQL.
 
-The pipeline validates records, saves rejected records with their reasons,
-and inserts valid orders without creating duplicate order IDs.
+The goal is to build a pipeline that handles invalid records, repeated
+files, and corrected orders.
 
-## Pipeline
+## How it works
 
-CSV → Python validation → rejection report + PostgreSQL → SQL queries
+1. Read orders from a CSV file.
+2. Validate required fields, dates, amounts, and statuses.
+3. Save rejected records and their reasons to a JSON file.
+4. Insert new orders into PostgreSQL.
+5. Update existing orders when their values change.
+6. Skip records that already match the database.
+7. Record progress and errors in a log file.
 
-One input row represents one order. All monetary amounts are in EUR.
-
-## Current features
-
-- Read orders from a CSV file.
-- Convert dates to Python `date` values and amounts to `Decimal`.
-- Validate required fields, dates, amounts, and statuses.
-- Save invalid records and rejection reasons to JSON.
-- Store valid orders in PostgreSQL.
-- Skip order IDs already stored in the database.
-- Load valid orders in a single database transaction.
-- Run automated tests for order validation.
+All database changes from one load are committed together. If a database
+operation fails, the transaction is rolled back.
 
 ## Tools
 
-- Python
-- PostgreSQL 18
-- Docker Desktop and Docker Compose
-- Psycopg 3
-- python-dotenv
-- unittest
-- Git and GitHub
+- Python — extraction, validation, and loading
+- PostgreSQL — data storage and SQL queries
+- Docker Compose — local database environment
+- Psycopg — Python connection to PostgreSQL
+- unittest — automated tests
+- Git and GitHub — version control
 
 ## Project structure
 
-```text
-retail-data-platform/
-├── data/
-│   ├── raw/
-│   │   └── orders.csv
-│   └── rejected/                 # Generated; ignored by Git
-├── sql/
-│   └── 001_create_orders.sql
-├── src/
-│   ├── main.py
-│   ├── extract.py
-│   ├── validate.py
-│   ├── reject.py
-│   └── load.py
-├── tests/
-│   └── test_validate.py
-├── .env                         # Local settings; ignored by Git
-├── .env.example
-├── .gitignore
-├── compose.yml
-├── requirements.txt
-└── README.md
-```
-
-## Order validation rules
-
-| Field | Rule |
+| Location | Purpose |
 |---|---|
-| `order_id` | Required and non-empty |
-| `customer_id` | Required and non-empty |
-| `order_date` | Valid date in `YYYY-MM-DD` format |
-| `total_amount` | Finite, non-negative, and representable in whole cents |
-| `status` | `completed`, `cancelled`, or `refunded` |
+| `src/` | Pipeline code |
+| `data/raw/orders.csv` | Synthetic sample orders |
+| `data/rejected/` | Generated rejection reports |
+| `sql/` | Database table definitions |
+| `tests/` | Validation and database tests |
+| `logs/` | Generated pipeline logs |
+| `compose.yml` | PostgreSQL container configuration |
+| `.env.example` | Example configuration without real credentials |
 
-Surrounding whitespace is removed from required values.
-Statuses are converted to lowercase.
+## Order rules
 
-Refunded orders retain their original amount. Their status identifies
-them as refunded.
+Each row represents one order. All amounts are in EUR.
 
-## Local setup
+- Order and customer IDs must not be empty.
+- Dates must use the valid `YYYY-MM-DD` format.
+- Amounts must be finite, non-negative, and representable in whole cents.
+- Status must be `completed`, `cancelled`, or `refunded`.
+- A refunded order keeps its original amount.
 
-### 1. Clone the repository
+## Setup
 
-```powershell
-git clone https://github.com/Neupane-pradip/retail-data-platform.git
-cd retail-data-platform
-```
+Run these commands from the project root on Windows.
 
-### 2. Create a virtual environment
+### 1. Create a Python environment
 
 ```powershell
 python -m venv .venv
 ```
 
-The following commands use the virtual environment's Python directly,
-so activating it is optional.
-
-### 3. Install dependencies
+### 2. Install dependencies
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-### 4. Configure the database connection
-
-Create a local configuration file:
+### 3. Configure the connection
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` with your local settings:
 
 ```dotenv
 POSTGRES_HOST=localhost
@@ -117,27 +83,22 @@ POSTGRES_PASSWORD=replace_with_your_local_password
 POSTGRES_DB=retail_db
 ```
 
-Replace the password placeholder. Do not commit `.env`.
+Keep `.env` out of Git.
 
-The Docker database uses host port `5433` and container port `5432`,
-allowing it to run alongside a typical local PostgreSQL installation.
+### 4. Start PostgreSQL
 
-### 5. Start PostgreSQL
-
-Ensure Docker Desktop is running, then execute:
+Open Docker Desktop, then run:
 
 ```powershell
 docker compose up -d
 docker compose ps
 ```
 
-Wait until the PostgreSQL service reports `healthy`.
+Wait until PostgreSQL reports `healthy`.
 
-Database files are stored in a persistent Docker volume.
+### 5. Create the table
 
-### 6. Create the orders table
-
-Run these commands once for a new database:
+Run once for a new database:
 
 ```powershell
 docker compose cp sql/001_create_orders.sql postgres:/tmp/001_create_orders.sql
@@ -147,83 +108,53 @@ docker compose cp sql/001_create_orders.sql postgres:/tmp/001_create_orders.sql
 docker compose exec postgres psql -U retail_user -d retail_db -v ON_ERROR_STOP=1 -f /tmp/001_create_orders.sql
 ```
 
-The schema script creates `public.orders`. It is not intended to be
-rerun against an existing table.
-
 ## Run the pipeline
-
-From the project root:
 
 ```powershell
 .\.venv\Scripts\python.exe src/main.py
 ```
 
-For an empty orders table and the supplied sample containing five valid
-and three invalid records, the summary is:
+The output reports records read, valid, rejected, inserted or updated,
+and unchanged.
 
-```text
-Orders read: 8
-Valid orders: 5
-Rejected orders: 3
-Orders inserted: 5
-Existing order IDs skipped: 0
-```
+- Rejection report: `data/rejected/orders_rejected.json`
+- Log file: `logs/pipeline.log`
 
-Running the same input again produces:
+The rejection report is replaced each run. Logs are appended.
 
-```text
-Orders inserted: 0
-Existing order IDs skipped: 5
-```
+## Run tests
 
-Rejected records are written to:
-
-```text
-data/rejected/orders_rejected.json
-```
-
-This report is replaced on each run. If no records are rejected,
-it contains an empty JSON array.
-
-## Run validation tests
+Validation tests:
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-The tests cover valid conversions and rejection scenarios such as
-invalid dates, negative amounts, fractions of a cent, non-finite
-amounts, and unsupported statuses.
+To also run the database rollback test, keep PostgreSQL running and use:
 
-## Inspect stored orders
+```powershell
+$env:RUN_DB_TESTS = "1"
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+Remove-Item Env:RUN_DB_TESTS
+```
 
-Connect to PostgreSQL:
+## Query the data
+
+Connect:
 
 ```powershell
 docker compose exec postgres psql -U retail_user -d retail_db
 ```
 
-Run:
+View orders:
 
 ```sql
-SELECT
-    order_id,
-    customer_id,
-    order_date,
-    total_amount,
-    status
+SELECT order_id, order_date, total_amount, status
 FROM public.orders
 ORDER BY order_id;
 ```
 
-Count stored orders:
-
-```sql
-SELECT COUNT(*) AS order_count
-FROM public.orders;
-```
-
-Query completed-order value by date:
+Calculate completed-order value by date:
 
 ```sql
 SELECT
@@ -235,44 +166,23 @@ GROUP BY order_date
 ORDER BY order_date;
 ```
 
-Exit psql with `\q`.
+Exit with `\q`.
 
-## Reliability and current limitations
+## Current limitations
 
-- `order_id` is the table's primary key.
-- Existing order IDs are skipped using `ON CONFLICT DO NOTHING`.
-- Corrections to an existing order are not applied yet.
-- Valid orders from one loader call are committed together.
-  A database error rolls back that transaction.
-- Database constraints enforce required values, supported statuses,
-  and valid stored amounts.
-- Python rejects fractional cents before loading; PostgreSQL's
-  `NUMERIC(12,2)` type can otherwise round extra decimal places.
-- The rejection report is separate from the database transaction.
-- Files are currently read into memory.
-- The setup is intended for local learning and uses the database's
-  initial administrative role.
+- Incoming records overwrite different values for the same order ID.
+  Older files can therefore overwrite newer information.
+- Files are read into memory.
+- The rejection report and database changes are separate operations.
+- This is a local learning environment, not a production deployment.
 
-## Stop the database
+## What this project teaches
 
-```powershell
-docker compose stop
-```
+CSV ingestion, Python validation, decimal arithmetic, SQL constraints,
+transactions, upserts, repeatable loading, logging, and automated testing.
 
-Restart it with:
+## Next improvements
 
-```powershell
-docker compose start
-```
-
-`docker compose down` removes containers and the project network while
-preserving the named database volume. Adding `-v` also deletes that volume
-and its stored data.
-
-## Next steps
-
-- Verify rollback behaviour with a deliberate loading failure.
-- Add database integration tests.
-- Introduce structured logging.
-- Define how corrected and late-arriving orders should be handled.
-- Extend the data model with customers, products, and order items.
+- Prevent older records from overwriting newer updates.
+- Add automated tests for order corrections.
+- Extend the model with customers, products, and order items.
