@@ -4,7 +4,7 @@ import psycopg
 
 
 INSERT_ORDER_SQL = """
-    INSERT INTO public.orders (
+    INSERT INTO public.orders AS existing (
         order_id,
         customer_id,
         order_date,
@@ -12,13 +12,31 @@ INSERT_ORDER_SQL = """
         status
     )
     VALUES (%s, %s, %s, %s, %s)
-    ON CONFLICT (order_id) DO NOTHING;
+
+    ON CONFLICT (order_id)
+    DO UPDATE SET
+        customer_id = EXCLUDED.customer_id,
+        order_date = EXCLUDED.order_date,
+        total_amount = EXCLUDED.total_amount,
+        status = EXCLUDED.status
+
+    WHERE (
+        existing.customer_id,
+        existing.order_date,
+        existing.total_amount,
+        existing.status
+    ) IS DISTINCT FROM (
+        EXCLUDED.customer_id,
+        EXCLUDED.order_date,
+        EXCLUDED.total_amount,
+        EXCLUDED.status
+    );
 """
 
 
 def load_orders(orders: list[dict]) -> int:
-    """Insert new orders in one transaction and return the inserted count."""
-    inserted_count = 0
+    """Insert or update orders in one transaction; return changed row count."""
+    changed_count = 0
 
     with psycopg.connect(
         host=os.environ["POSTGRES_HOST"],
@@ -41,6 +59,6 @@ def load_orders(orders: list[dict]) -> int:
                     ),
                 )
 
-                inserted_count += cursor.rowcount
+                changed_count += cursor.rowcount
 
-    return inserted_count
+    return changed_count
