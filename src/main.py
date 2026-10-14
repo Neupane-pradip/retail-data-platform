@@ -1,9 +1,11 @@
+import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from extract import read_orders
 from load import load_orders
+from logging_config import configure_logging
 from reject import save_rejections
 from validate import validate_order
 
@@ -16,11 +18,15 @@ REJECTIONS_FILE = (
     PROJECT_ROOT / "data" / "rejected" / "orders_rejected.json"
 )
 
+LOG_FILE = PROJECT_ROOT / "logs" / "pipeline.log"
 
-def main() -> None:
-    load_dotenv(PROJECT_ROOT / ".env")
+logger = logging.getLogger("retail_pipeline")
 
-    print("Retail data pipeline started")
+
+def run_pipeline() -> None:
+    """Read, validate, and load orders."""
+    logger.info("Retail data pipeline started")
+    logger.info("Reading orders from %s", ORDERS_FILE)
 
     rows = read_orders(ORDERS_FILE)
 
@@ -40,28 +46,40 @@ def main() -> None:
                 }
             )
 
+            logger.warning(
+                "Rejected record %s: %s",
+                record_number,
+                error,
+            )
+
         else:
             valid_orders.append(order)
 
     save_rejections(rejected_orders, REJECTIONS_FILE)
 
-    print(f"Orders read: {len(rows)}")
-    print(f"Valid orders: {len(valid_orders)}")
-    print(f"Rejected orders: {len(rejected_orders)}")
+    logger.info("Orders read: %s", len(rows))
+    logger.info("Valid orders: %s", len(valid_orders))
+    logger.info("Rejected orders: %s", len(rejected_orders))
+    logger.info("Rejection report saved to %s", REJECTIONS_FILE)
 
     inserted_count = load_orders(valid_orders)
     skipped_count = len(valid_orders) - inserted_count
 
-    print(f"Orders inserted: {inserted_count}")
-    print(f"Existing order IDs skipped: {skipped_count}")
+    logger.info("Orders inserted: %s", inserted_count)
+    logger.info("Existing order IDs skipped: %s", skipped_count)
+    logger.info("Retail data pipeline finished successfully")
 
-    for rejection in rejected_orders:
-        print(
-            f"Rejected record {rejection['record_number']}: "
-            f"{rejection['reason']}"
-        )
 
-    print("Retail data pipeline finished")
+def main() -> None:
+    configure_logging(LOG_FILE)
+    load_dotenv(PROJECT_ROOT / ".env")
+
+    try:
+        run_pipeline()
+
+    except Exception:
+        logger.exception("Retail data pipeline failed")
+        raise
 
 
 if __name__ == "__main__":
