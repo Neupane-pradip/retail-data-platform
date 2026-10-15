@@ -13,6 +13,7 @@ def make_valid_order() -> dict[str, str]:
         "order_date": "2026-10-01",
         "total_amount": "49.90",
         "status": "completed",
+        "source_updated_at": "2026-10-15T14:00:00+00:00",
     }
 
 

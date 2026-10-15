@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 
@@ -13,6 +13,7 @@ def validate_order(row: dict[str, str]) -> dict:
         "order_date",
         "total_amount",
         "status",
+        "source_updated_at",
     )
 
     cleaned = {}
@@ -25,16 +26,16 @@ def validate_order(row: dict[str, str]) -> dict:
 
         cleaned[field] = value.strip()
 
-    # Parse the date and enforce the YYYY-MM-DD representation.
     try:
         order_date = date.fromisoformat(cleaned["order_date"])
     except ValueError:
-        raise ValueError("order_date must be a valid YYYY-MM-DD date") from None
+        raise ValueError(
+            "order_date must be a valid YYYY-MM-DD date"
+        ) from None
 
     if order_date.isoformat() != cleaned["order_date"]:
         raise ValueError("order_date must use YYYY-MM-DD format")
 
-    # Parse money directly from the string to preserve decimal accuracy.
     try:
         amount = Decimal(cleaned["total_amount"])
     except InvalidOperation:
@@ -46,7 +47,10 @@ def validate_order(row: dict[str, str]) -> dict:
     if amount < 0:
         raise ValueError("total_amount must not be negative")
 
-    # Check whole cents without rounding the input.
+    # Match the maximum value supported by NUMERIC(12, 2).
+    if amount > Decimal("9999999999.99"):
+        raise ValueError("total_amount exceeds the supported maximum")
+
     if amount % Decimal("0.01") != 0:
         raise ValueError("total_amount must represent whole cents")
 
@@ -57,10 +61,35 @@ def validate_order(row: dict[str, str]) -> dict:
             "status must be completed, cancelled, or refunded"
         )
 
+    timestamp_text = cleaned["source_updated_at"]
+
+    if "T" not in timestamp_text:
+        raise ValueError(
+            "source_updated_at must contain a date and time separated by T"
+        )
+
+    try:
+        source_updated_at = datetime.fromisoformat(timestamp_text)
+    except ValueError:
+        raise ValueError(
+            "source_updated_at must be a valid ISO timestamp"
+        ) from None
+
+    if (
+        source_updated_at.tzinfo is None
+        or source_updated_at.utcoffset() is None
+    ):
+        raise ValueError(
+            "source_updated_at must include a timezone offset"
+        )
+
+    source_updated_at = source_updated_at.astimezone(timezone.utc)
+
     return {
         "order_id": cleaned["order_id"],
         "customer_id": cleaned["customer_id"],
         "order_date": order_date,
         "total_amount": amount,
         "status": status,
+        "source_updated_at": source_updated_at,
     }
