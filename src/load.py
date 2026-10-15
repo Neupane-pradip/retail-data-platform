@@ -3,39 +3,33 @@ import os
 import psycopg
 
 
-INSERT_ORDER_SQL = """
+UPSERT_ORDER_SQL = """
     INSERT INTO public.orders AS existing (
         order_id,
         customer_id,
         order_date,
         total_amount,
-        status
+        status,
+        source_updated_at
     )
-    VALUES (%s, %s, %s, %s, %s)
+    VALUES (%s, %s, %s, %s, %s, %s)
 
     ON CONFLICT (order_id)
     DO UPDATE SET
         customer_id = EXCLUDED.customer_id,
         order_date = EXCLUDED.order_date,
         total_amount = EXCLUDED.total_amount,
-        status = EXCLUDED.status
+        status = EXCLUDED.status,
+        source_updated_at = EXCLUDED.source_updated_at
 
-    WHERE (
-        existing.customer_id,
-        existing.order_date,
-        existing.total_amount,
-        existing.status
-    ) IS DISTINCT FROM (
-        EXCLUDED.customer_id,
-        EXCLUDED.order_date,
-        EXCLUDED.total_amount,
-        EXCLUDED.status
-    );
+    WHERE
+        existing.source_updated_at IS NULL
+        OR EXCLUDED.source_updated_at > existing.source_updated_at;
 """
 
 
 def load_orders(orders: list[dict]) -> int:
-    """Insert or update orders in one transaction; return changed row count."""
+    """Insert new orders or apply newer versions in one transaction."""
     changed_count = 0
 
     with psycopg.connect(
@@ -49,13 +43,14 @@ def load_orders(orders: list[dict]) -> int:
         with connection.cursor() as cursor:
             for order in orders:
                 cursor.execute(
-                    INSERT_ORDER_SQL,
+                    UPSERT_ORDER_SQL,
                     (
                         order["order_id"],
                         order["customer_id"],
                         order["order_date"],
                         order["total_amount"],
                         order["status"],
+                        order["source_updated_at"],
                     ),
                 )
 

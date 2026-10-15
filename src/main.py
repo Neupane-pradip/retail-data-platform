@@ -63,10 +63,10 @@ def run_pipeline() -> None:
     logger.info("Rejection report saved to %s", REJECTIONS_FILE)
 
     changed_count = load_orders(valid_orders)
-    unchanged_count = len(valid_orders) - changed_count
+    skipped_count = len(valid_orders) - changed_count
 
     logger.info("Orders inserted or updated: %s", changed_count)
-    logger.info("Unchanged records skipped: %s", unchanged_count)
+    logger.info("Equal or older versions skipped: %s", skipped_count)
     logger.info("Retail data pipeline finished successfully")
 
 

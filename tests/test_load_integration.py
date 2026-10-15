@@ -1,6 +1,6 @@
 import os
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -26,167 +26,153 @@ def connect_to_database():
     )
 
 
+def make_order(
+    order_id: str,
+    status: str = "completed",
+    updated_hour: int = 10,
+) -> dict:
+    """Create a typed synthetic order."""
+    return {
+        "order_id": order_id,
+        "customer_id": "TEST_CUSTOMER",
+        "order_date": date(2026, 10, 1),
+        "total_amount": Decimal("49.90"),
+        "status": status,
+        "source_updated_at": datetime(
+            2026,
+            10,
+            15,
+            updated_hour,
+            tzinfo=timezone.utc,
+        ),
+    }
+
+
+def delete_test_orders(order_ids: list[str]) -> None:
+    """Delete only the generated test orders."""
+    with connect_to_database() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM public.orders
+                WHERE order_id = ANY(%s);
+                """,
+                (order_ids,),
+            )
+
+
+def fetch_order(order_id: str):
+    """Read the fields checked by the integration tests."""
+    with connect_to_database() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT total_amount, status, source_updated_at
+                FROM public.orders
+                WHERE order_id = %s;
+                """,
+                (order_id,),
+            )
+
+            return cursor.fetchone()
+
+
 @unittest.skipUnless(
     os.environ.get("RUN_DB_TESTS") == "1",
     "Set RUN_DB_TESTS=1 to run database integration tests",
 )
 class TestLoadOrdersIntegration(unittest.TestCase):
 
-    def test_failed_batch_rolls_back_all_new_orders(self):
-        """A failed insert must roll back the whole batch."""
+    @classmethod
+    def setUpClass(cls):
         load_dotenv(PROJECT_ROOT / ".env")
 
+    def test_failed_batch_rolls_back_all_new_orders(self):
         batch_id = uuid4().hex
         first_id = f"TEST_{batch_id}_1"
         second_id = f"TEST_{batch_id}_2"
 
-        orders = [
-            {
-                "order_id": first_id,
-                "customer_id": "TEST_CUSTOMER",
-                "order_date": date(2026, 10, 1),
-                "total_amount": Decimal("10.00"),
-                "status": "completed",
-            },
-            {
-                "order_id": second_id,
-                "customer_id": "TEST_CUSTOMER",
-                "order_date": date(2026, 10, 1),
-                "total_amount": Decimal("-5.00"),
-                "status": "completed",
-            },
-        ]
+        first_order = make_order(first_id)
+        invalid_order = make_order(second_id)
+        invalid_order["total_amount"] = Decimal("-5.00")
 
         try:
-            # The second order violates the amount constraint.
             with self.assertRaises(
                 psycopg.errors.CheckViolation
             ) as raised:
-                load_orders(orders)
+                load_orders([first_order, invalid_order])
 
             self.assertEqual(
                 raised.exception.diag.constraint_name,
                 "orders_amount_valid",
             )
 
-            # Neither order should remain after the failed batch.
-            with connect_to_database() as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        SELECT COUNT(*)
-                        FROM public.orders
-                        WHERE order_id IN (%s, %s);
-                        """,
-                        (first_id, second_id),
-                    )
-
-                    stored_count = cursor.fetchone()[0]
-
-            self.assertEqual(
-                stored_count,
-                0,
-                "A failed batch left partially written orders",
-            )
+            self.assertIsNone(fetch_order(first_id))
+            self.assertIsNone(fetch_order(second_id))
 
         finally:
-            # Remove only this test's records if anything remains.
-            with connect_to_database() as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        DELETE FROM public.orders
-                        WHERE order_id IN (%s, %s);
-                        """,
-                        (first_id, second_id),
-                    )
+            delete_test_orders([first_id, second_id])
 
     def test_order_updates_and_replays(self):
-        """Insert new orders, apply corrections, and skip replays."""
-        load_dotenv(PROJECT_ROOT / ".env")
-
         order_id = f"TEST_{uuid4().hex}"
 
-        order = {
-            "order_id": order_id,
-            "customer_id": "TEST_CUSTOMER",
-            "order_date": date(2026, 10, 1),
-            "total_amount": Decimal("49.90"),
-            "status": "completed",
-        }
+        original = make_order(order_id, updated_hour=10)
+
+        correction = make_order(
+            order_id,
+            status="refunded",
+            updated_hour=14,
+        )
 
         try:
-            # First delivery: insert the new order.
-            self.assertEqual(
-                load_orders([order]),
-                1,
-                "A new order should be inserted",
-            )
+            self.assertEqual(load_orders([original]), 1)
+            self.assertEqual(load_orders([original]), 0)
 
-            # Identical delivery: skip the unchanged order.
-            self.assertEqual(
-                load_orders([order]),
-                0,
-                "An identical order should be skipped",
-            )
-
-            # Create a correction without changing the original input.
-            corrected_order = {
-                **order,
-                "status": "refunded",
-            }
-
-            # Corrected delivery: update the stored order.
-            self.assertEqual(
-                load_orders([corrected_order]),
-                1,
-                "A corrected order should be updated",
-            )
-
-            # Repeated correction: skip the unchanged order.
-            self.assertEqual(
-                load_orders([corrected_order]),
-                0,
-                "An identical correction should be skipped",
-            )
-
-            # Verify the final stored values and row count.
-            with connect_to_database() as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        SELECT customer_id, total_amount, status
-                        FROM public.orders
-                        WHERE order_id = %s;
-                        """,
-                        (order_id,),
-                    )
-
-                    stored_rows = cursor.fetchall()
+            self.assertEqual(load_orders([correction]), 1)
+            self.assertEqual(load_orders([correction]), 0)
 
             self.assertEqual(
-                stored_rows,
-                [
-                    (
-                        "TEST_CUSTOMER",
-                        Decimal("49.90"),
-                        "refunded",
-                    )
-                ],
-                "The database should contain one corrected order",
+                fetch_order(order_id),
+                (
+                    Decimal("49.90"),
+                    "refunded",
+                    correction["source_updated_at"],
+                ),
             )
 
         finally:
-            # Remove only the order created by this test.
-            with connect_to_database() as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        DELETE FROM public.orders
-                        WHERE order_id = %s;
-                        """,
-                        (order_id,),
-                    )
+            delete_test_orders([order_id])
+
+    def test_older_version_cannot_overwrite_newer_order(self):
+        order_id = f"TEST_{uuid4().hex}"
+
+        newest = make_order(
+            order_id,
+            status="refunded",
+            updated_hour=14,
+        )
+
+        older = make_order(
+            order_id,
+            status="completed",
+            updated_hour=10,
+        )
+
+        try:
+            self.assertEqual(load_orders([newest]), 1)
+            self.assertEqual(load_orders([older]), 0)
+
+            self.assertEqual(
+                fetch_order(order_id),
+                (
+                    Decimal("49.90"),
+                    "refunded",
+                    newest["source_updated_at"],
+                ),
+            )
+
+        finally:
+            delete_test_orders([order_id])
 
 
 if __name__ == "__main__":
