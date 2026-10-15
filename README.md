@@ -1,188 +1,148 @@
 # Retail Data Platform
 
-A data engineering learning project that turns retail order files into
-validated data stored in PostgreSQL.
+A data engineering learning project that processes retail orders from
+CSV files and stores validated records in PostgreSQL.
 
-The goal is to build a pipeline that handles invalid records, repeated
-files, and corrected orders.
+The project focuses on reliable loading, handling corrections, testing
+failures, and checking reporting totals.
 
-## How it works
+## Pipeline
 
-1. Read orders from a CSV file.
-2. Validate required fields, dates, amounts, and statuses.
-3. Save rejected records and their reasons to a JSON file.
-4. Insert new orders into PostgreSQL.
-5. Update existing orders when their values change.
-6. Skip records that already match the database.
-7. Record progress and errors in a log file.
+CSV → Validation → PostgreSQL → SQL reports
 
-All database changes from one load are committed together. If a database
-operation fails, the transaction is rolled back.
+Invalid records are saved separately with rejection reasons.
+Pipeline activity and failures are recorded in a log file.
 
-## Tools
+## Tools used
 
-- Python — extraction, validation, and loading
-- PostgreSQL — data storage and SQL queries
-- Docker Compose — local database environment
-- Psycopg — Python connection to PostgreSQL
-- unittest — automated tests
-- Git and GitHub — version control
+- Python
+- PostgreSQL
+- Docker Compose
+- Psycopg
+- python-dotenv
+- unittest
+- Git and GitHub
 
-## Project structure
+## What I have built
+
+### CSV extraction and validation
+
+The pipeline reads synthetic retail orders and checks:
+
+- Required fields are present and non-empty.
+- Order dates are valid.
+- Amounts are finite, non-negative, and representable in whole cents.
+- Amounts fit the database column.
+- Statuses are completed, cancelled, or refunded.
+- Source update timestamps include timezone information.
+
+Money is converted to Python `Decimal`, and source timestamps are
+normalised to UTC.
+
+### Rejection reporting
+
+Invalid records are saved to a JSON report with their original values,
+record numbers, and rejection reasons.
+
+The report is replaced on each run.
+
+### PostgreSQL storage
+
+The orders table uses a primary key and constraints to protect stored data.
+
+Valid orders are loaded in one transaction. If a database operation fails,
+the transaction is rolled back to prevent partial writes.
+
+### Order corrections and repeated deliveries
+
+The loader uses source timestamps to decide whether to update an order.
+
+| Incoming record | Action |
+|---|---|
+| New order ID | Insert |
+| Existing order without a source timestamp | Accept timestamped record |
+| Newer source version | Update |
+| Equal or older source version | Skip |
+
+Repeating the same input does not create duplicate orders or change
+already matching versions.
+
+### Logging
+
+Timestamped logs record progress, rejection warnings, loading counts,
+and failures.
+
+Messages appear in the terminal and are appended to a log file.
+
+### Automated testing
+
+The current suite contains 10 passing tests covering:
+
+- Valid data conversion.
+- Invalid fields, dates, amounts, and statuses.
+- Transaction rollback after a failed insert.
+- Order corrections and repeated deliveries.
+- Protection against older updates overwriting newer records.
+
+Database tests use uniquely named synthetic orders and clean them up afterward.
+
+### SQL reporting and reconciliation
+
+Saved SQL queries report:
+
+- Order counts and values by current status.
+- Daily summaries by original order date.
+- Total orders and distinct customers.
+- Missing source update timestamps.
+
+The results were manually checked against the valid sample records.
+
+## Verified sample results
+
+The sample contains eight records: five valid and three rejected.
+
+| Metric | Result |
+|---|---:|
+| Stored orders | 5 |
+| Distinct customers | 3 |
+| Completed-order value | €199.99 |
+| Refunded-order value | €74.90 |
+| Cancelled-order value | €35.50 |
+| Total value across all statuses | €310.39 |
+| Missing source timestamps after loading | 0 |
+
+These amounts describe orders by their current status, not accounting
+revenue or payment-event history.
+
+## Main project files
 
 | Location | Purpose |
 |---|---|
-| `src/` | Pipeline code |
-| `data/raw/orders.csv` | Synthetic sample orders |
-| `data/rejected/` | Generated rejection reports |
-| `sql/` | Database table definitions |
-| `tests/` | Validation and database tests |
-| `logs/` | Generated pipeline logs |
-| `compose.yml` | PostgreSQL container configuration |
-| `.env.example` | Example configuration without real credentials |
-
-## Order rules
-
-Each row represents one order. All amounts are in EUR.
-
-- Order and customer IDs must not be empty.
-- Dates must use the valid `YYYY-MM-DD` format.
-- Amounts must be finite, non-negative, and representable in whole cents.
-- Status must be `completed`, `cancelled`, or `refunded`.
-- A refunded order keeps its original amount.
-
-## Setup
-
-Run these commands from the project root on Windows.
-
-### 1. Create a Python environment
-
-```powershell
-python -m venv .venv
-```
-
-### 2. Install dependencies
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-### 3. Configure the connection
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Edit `.env` with your local settings:
-
-```dotenv
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5433
-POSTGRES_USER=retail_user
-POSTGRES_PASSWORD=replace_with_your_local_password
-POSTGRES_DB=retail_db
-```
-
-Keep `.env` out of Git.
-
-### 4. Start PostgreSQL
-
-Open Docker Desktop, then run:
-
-```powershell
-docker compose up -d
-docker compose ps
-```
-
-Wait until PostgreSQL reports `healthy`.
-
-### 5. Create the table
-
-Run once for a new database:
-
-```powershell
-docker compose cp sql/001_create_orders.sql postgres:/tmp/001_create_orders.sql
-```
-
-```powershell
-docker compose exec postgres psql -U retail_user -d retail_db -v ON_ERROR_STOP=1 -f /tmp/001_create_orders.sql
-```
-
-## Run the pipeline
-
-```powershell
-.\.venv\Scripts\python.exe src/main.py
-```
-
-The output reports records read, valid, rejected, inserted or updated,
-and unchanged.
-
-- Rejection report: `data/rejected/orders_rejected.json`
-- Log file: `logs/pipeline.log`
-
-The rejection report is replaced each run. Logs are appended.
-
-## Run tests
-
-Validation tests:
-
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-```
-
-To also run the database rollback test, keep PostgreSQL running and use:
-
-```powershell
-$env:RUN_DB_TESTS = "1"
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-Remove-Item Env:RUN_DB_TESTS
-```
-
-## Query the data
-
-Connect:
-
-```powershell
-docker compose exec postgres psql -U retail_user -d retail_db
-```
-
-View orders:
-
-```sql
-SELECT order_id, order_date, total_amount, status
-FROM public.orders
-ORDER BY order_id;
-```
-
-Calculate completed-order value by date:
-
-```sql
-SELECT
-    order_date,
-    SUM(total_amount) AS completed_order_value
-FROM public.orders
-WHERE status = 'completed'
-GROUP BY order_date
-ORDER BY order_date;
-```
-
-Exit with `\q`.
+| `src/` | Extraction, validation, loading, and logging code |
+| `data/raw/orders.csv` | Synthetic source records |
+| `sql/001_create_orders.sql` | Initial orders table |
+| `sql/002_add_source_updated_at.sql` | Source timestamp migration |
+| `sql/003_order_reports.sql` | Reports and control totals |
+| `tests/` | Validation and database integration tests |
 
 ## Current limitations
 
-- Incoming records overwrite different values for the same order ID.
-  Older files can therefore overwrite newer information.
+- Equal timestamps with conflicting values are skipped without an alert.
 - Files are read into memory.
-- The rejection report and database changes are separate operations.
-- This is a local learning environment, not a production deployment.
+- Rejection reports and database changes are separate operations.
+- Reconciliation is currently manual.
+- Order status history and individual payment events are not stored.
+- This project is a local learning implementation.
 
-## What this project teaches
+## What I am learning
 
-CSV ingestion, Python validation, decimal arithmetic, SQL constraints,
-transactions, upserts, repeatable loading, logging, and automated testing.
+Python data processing, SQL, database constraints, transactions, upserts,
+source version handling, logging, testing, and data reconciliation.
 
-## Next improvements
+## Next steps
 
-- Prevent older records from overwriting newer updates.
-- Add automated tests for order corrections.
+- Automate tests with GitHub Actions.
+- Add more timestamp-validation tests.
+- Detect conflicting source records.
+- Automate reconciliation.
 - Extend the model with customers, products, and order items.
