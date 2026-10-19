@@ -77,3 +77,13 @@ jobs:
 
       - name: Run all tests
         run: python -m unittest discover -s tests -v
+
+      - name: Load sample data and check reconciliation
+        run: |
+          python src/main.py
+          python src/reconcile.py
+
+      - name: Replay sample data and check reconciliation
+        run: |
+          python src/main.py
+          python src/reconcile.py
