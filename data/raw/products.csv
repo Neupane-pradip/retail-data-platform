@@ -1,0 +1,6 @@
+product_id,product_name,category,current_price
+PROD001,Filter Coffee,Groceries,6.90
+PROD002,Oat Drink,Groceries,2.50
+PROD003,Notebook,Stationery,4.90
+PROD004,Desk Lamp,Home,29.90
+PROD005,USB Cable,Electronics,9.90
