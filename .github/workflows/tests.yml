@@ -62,7 +62,8 @@ jobs:
             sql/002_add_source_updated_at.sql \
             sql/004_create_customers.sql \
             sql/005_add_orders_customer_fk.sql \
-            sql/006_create_products.sql
+            sql/006_create_products.sql \
+            sql/007_create_order_items.sql
           do
             echo "Applying $migration"
 
