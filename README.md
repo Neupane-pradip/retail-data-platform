@@ -1,161 +1,167 @@
 ﻿# Retail Data Platform
 
-A data engineering learning project that processes synthetic retail data
-and stores validated records in PostgreSQL.
+A data engineering learning project that turns synthetic retail CSV files
+into validated PostgreSQL data and tested analytics models.
 
-The ingestion stage covers customers, products, orders, and order items.
-It focuses on reliable loading, data relationships, testing, and reporting.
+The project covers ingestion, relational modelling, data quality,
+warehouse transformations, reporting, and continuous integration.
 
-## Pipeline
+## How it works
 
-Customers → Products → Orders → Order items → Reconciliation
+1. Read customers, products, orders, and order items from CSV.
+2. Validate records and save rejection reasons.
+3. Load valid records into PostgreSQL.
+4. Check that order totals match their item totals.
+5. Build staging views, dimensions, a fact table, and a sales report with dbt.
+6. Test the data and reconcile reporting totals.
 
-Each dataset is read from CSV, validated, and loaded into PostgreSQL.
-Invalid input records are saved separately with rejection reasons.
-
-## Tools used
+## Tools
 
 Python, PostgreSQL, Docker Compose, Psycopg, python-dotenv,
-unittest, Git, GitHub, and GitHub Actions.
+unittest, dbt Core, Git, GitHub, and GitHub Actions.
 
-## Data model
+## Source data model
 
 | Table | One row represents |
 |---|---|
-| `customers` | One customer |
-| `products` | One product |
-| `orders` | One order |
-| `order_items` | One line within an order |
+| customers | One customer |
+| products | One product |
+| orders | One order |
+| order_items | One line within an order |
 
-Orders reference existing customers. Order items reference existing orders
-and products. An item is identified by its order ID and line number.
+Foreign keys connect orders to customers and item lines to orders
+and products.
 
-Order-item prices preserve the selling price, independently of the
+The selling price is stored on each item line independently of the
 product's current catalogue price.
 
-## Implemented features
+## Ingestion features
 
-### Extraction and validation
+- Required-field, date, status, quantity, and money validation.
+- Python Decimal for monetary values.
+- Timezone-aware source timestamps normalised to UTC.
+- JSON rejection reports with original values and reasons.
+- Timestamped progress and error logs.
+- One transaction per dataset load.
+- Duplicate protection through primary keys.
+- Newer-version updates for orders.
+- Reconciliation of stored order and item totals.
 
-The pipeline reads CSV files and checks required fields, dates,
-statuses, integer quantities, and monetary values.
+### Existing-record policies
 
-Money is converted directly from text to Python `Decimal`.
-Order source timestamps must include timezone information and are
-normalised to UTC.
-
-### Rejection reports and logging
-
-Invalid records are saved as JSON with their original values and reasons.
-Each dataset's rejection report is replaced on every run.
-
-Timestamped logs record progress, warnings, loading counts, and failures.
-Logs appear in the terminal and are appended to a file.
-
-### Reliable database loading
-
-Each dataset is loaded in its own transaction. A database failure rolls
-back that dataset's load.
-
-Primary keys prevent duplicate identities. Foreign keys enforce valid
-customer, order, and product references.
-
-| Dataset | Existing-record policy |
+| Dataset | Policy |
 |---|---|
-| Customers | Skip existing customer IDs |
-| Products | Skip existing product IDs |
-| Orders | Apply only newer source versions |
+| Customers | Skip existing IDs |
+| Products | Skip existing IDs |
+| Orders | Accept newer source versions |
 | Order items | Skip existing order ID and line-number pairs |
 
-Replaying the supplied files does not create duplicate records.
-
-### Order version handling
-
-New orders are inserted. Existing orders are updated only when the source
-timestamp is newer, or the stored source timestamp is unknown.
-
-Equal or older versions are skipped. This prevents an older delivery
+Equal or older order versions are skipped. This prevents stale deliveries
 from overwriting newer order information.
 
-### Reporting and reconciliation
+## Analytics warehouse
 
-SQL reports summarise order counts and values by status and order date.
+dbt builds the following models in the analytics schema.
 
-The reconciliation command checks that every stored order has items
-and that its item total equals its order total. Missing items, mismatches,
-or an empty orders table cause the check to fail.
+| Layer | Models | Purpose |
+|---|---|---|
+| Staging | stg_customers, stg_products, stg_orders, stg_order_items | Consistent source representation |
+| Dimensions | dim_customers, dim_products | Current descriptive attributes |
+| Fact | fct_order_items | Quantities and selling values per order line |
+| Reporting | rpt_product_sales | Completed sales grouped by product |
 
-The sample assumes no separate shipping charges, additional taxes,
-or order-level discounts.
+Staging models are views. Dimensions, the fact model, and the report
+are tables refreshed by dbt builds.
 
-## Sample dataset
+The warehouse uses business IDs as dimension keys and represents current
+attributes and order status rather than historical versions.
+
+## Sample data and results
+
+All source records are synthetic.
 
 | Dataset | Records |
 |---|---:|
 | Customers | 3 |
 | Products | 5 |
 | Source orders | 8 |
-| Valid stored orders | 5 |
+| Valid orders | 5 |
 | Rejected orders | 3 |
 | Order items | 10 |
 
-The rejected orders contain a negative amount, an invalid date,
+The three rejected orders contain a negative amount, an invalid date,
 and an unsupported status.
 
-## Verified business totals
-
-| Metric | Value |
+| Order-status total | Value |
 |---|---:|
-| Completed-order value | €199.99 |
-| Refunded-order value | €74.90 |
-| Cancelled-order value | €35.50 |
-| Total order value across statuses | €310.39 |
+| Completed | €199.99 |
+| Refunded | €74.90 |
+| Cancelled | €35.50 |
+| All statuses | €310.39 |
 
-All five sample order totals match their item totals.
+All five order totals match their item totals.
 
-These figures describe current order status, not accounting revenue.
-Refunds are grouped by original order date, not refund-event date.
+The product-sales report uses historical selling prices and includes
+only orders currently marked completed. Its total reconciles to €199.99.
 
-## Automated checks
+These values are order-status measures, not accounting revenue or
+payment-event history.
 
-Tests cover validation, repeated deliveries, order corrections,
-stale-version protection, foreign keys, transaction rollback,
-historical selling prices, and reconciliation outcomes.
+## Testing and continuous integration
 
-GitHub Actions creates a temporary PostgreSQL database, applies schema
-migrations, runs the tests, loads the sample data, and checks reconciliation
-before and after replaying the input.
+Python tests cover validation, duplicate deliveries, order corrections,
+stale updates, foreign keys, historical selling prices, rollback,
+and reconciliation outcomes.
 
-## Main project files
+dbt tests check required values, unique keys, relationships, allowed
+statuses, fact totals, and reporting totals.
+
+GitHub Actions is configured to:
+
+- Create a temporary PostgreSQL database.
+- Apply schema migrations.
+- Run Python tests.
+- Load and replay the sample files.
+- Run ingestion reconciliation.
+- Build and test the dbt warehouse.
+
+## Project files
 
 | Location | Purpose |
 |---|---|
-| `src/` | Pipeline, validation, loading, logging, and reconciliation |
-| `data/raw/` | Synthetic source CSV files |
-| `sql/` | Schema changes and reporting queries |
-| `tests/` | Unit and database integration tests |
-| `.github/workflows/tests.yml` | Automated checks on GitHub |
+| src/ | Python ingestion and reconciliation |
+| data/raw/ | Synthetic source files |
+| sql/ | Schema migrations and SQL reports |
+| tests/ | Python unit and integration tests |
+| warehouse/models/ | dbt staging, warehouse, and reporting models |
+| warehouse/tests/ | Custom SQL data tests |
+| .github/workflows/tests.yml | Automated checks |
 
 ## Current limitations
 
 - Customer, product, and item corrections are not applied.
 - Equal order timestamps with conflicting values are skipped.
 - Invalid database references fail the dataset load.
-- Transactions are per dataset, not for the entire pipeline.
-- Reconciliation detects inconsistencies after loading; it does not undo loads.
+- Transactions are per dataset, not across the whole pipeline.
+- Reconciliation detects inconsistencies after loading without undoing loads.
 - Files are read into memory.
-- Rejection reports and database transactions are separate operations.
-- Payment events and order-status history are not stored.
-- The project is a local learning implementation.
+- Rejection reports are replaced each run.
+- Source status and attribute history are not retained.
+- Warehouse tables require a new dbt build after ingestion changes.
+- Separate shipping fees, additional taxes, and order-level discounts
+  are outside the sample model.
+- This is a learning implementation rather than a production deployment.
 
 ## Learning outcomes
 
-CSV ingestion, Python validation, SQL relationships, decimal arithmetic,
-transactions, upserts, source version handling, testing, logging,
-continuous integration, and reconciliation.
+Reliable batch ingestion, relational modelling, SQL joins and aggregation,
+transactions, version-aware upserts, dimensional modelling, dbt,
+automated testing, reconciliation, and continuous integration.
 
-## Later stages
+## Later improvements
 
-- Build an analytics warehouse with dbt.
-- Introduce scheduling and orchestration with Airflow.
-- Extend reporting and operational monitoring.
+- Airflow scheduling and orchestration.
+- Historical dimension tracking.
+- More complete correction policies.
+- Monitoring, log rotation, and run identifiers.
+- Separate database roles with narrower permissions.

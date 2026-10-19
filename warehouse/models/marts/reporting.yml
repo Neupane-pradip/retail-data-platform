@@ -1,0 +1,37 @@
+version: 2
+
+models:
+  - name: rpt_product_sales
+    description: >
+      Completed-order sales by product, using historical selling prices.
+      One row per product with completed sales.
+
+    columns:
+      - name: product_id
+        data_tests:
+          - not_null
+          - unique
+          - relationships:
+              arguments:
+                to: ref('dim_products')
+                field: product_id
+
+      - name: product_name
+        data_tests:
+          - not_null
+
+      - name: category
+        data_tests:
+          - not_null
+
+      - name: completed_order_count
+        data_tests:
+          - not_null
+
+      - name: units_sold
+        data_tests:
+          - not_null
+
+      - name: completed_sales_eur
+        data_tests:
+          - not_null

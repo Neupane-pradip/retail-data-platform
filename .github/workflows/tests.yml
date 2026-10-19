@@ -11,7 +11,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     env:
       POSTGRES_HOST: 127.0.0.1
@@ -48,10 +48,19 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install Python dependencies
+      - name: Install ingestion dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install "psycopg[binary]>=3,<4" "python-dotenv>=1,<2"
+
+      - name: Install dbt in a separate environment
+        run: |
+          python -m venv .venv-dbt
+          .venv-dbt/bin/python -m pip install --upgrade pip
+          .venv-dbt/bin/python -m pip install \
+            "dbt-core==1.12.6" \
+            "dbt-postgres==1.11.0"
+          .venv-dbt/bin/python -m pip check
 
       - name: Apply schema migrations
         env:
@@ -75,7 +84,7 @@ jobs:
               < "$migration"
           done
 
-      - name: Run all tests
+      - name: Run Python tests
         run: python -m unittest discover -s tests -v
 
       - name: Load sample data and check reconciliation
@@ -87,3 +96,29 @@ jobs:
         run: |
           python src/main.py
           python src/reconcile.py
+
+      - name: Create temporary dbt connection profile
+        run: |
+          mkdir -p "$RUNNER_TEMP/dbt-profile"
+
+          cat > "$RUNNER_TEMP/dbt-profile/profiles.yml" <<'YAML'
+          retail_warehouse:
+            target: ci
+            outputs:
+              ci:
+                type: postgres
+                host: "{{ env_var('POSTGRES_HOST') }}"
+                port: "{{ env_var('POSTGRES_PORT') | int }}"
+                user: "{{ env_var('POSTGRES_USER') }}"
+                password: "{{ env_var('POSTGRES_PASSWORD') }}"
+                dbname: "{{ env_var('POSTGRES_DB') }}"
+                schema: analytics
+                threads: 2
+                connect_timeout: 10
+          YAML
+
+      - name: Build and test warehouse
+        run: |
+          .venv-dbt/bin/dbt build \
+            --project-dir warehouse \
+            --profiles-dir "$RUNNER_TEMP/dbt-profile"
