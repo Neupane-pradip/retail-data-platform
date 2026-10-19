@@ -15,3 +15,12 @@ __pycache__/
 # Generated pipeline output
 logs/
 data/rejected/
+
+# dbt environment and generated files
+.venv-dbt/
+warehouse/target/
+warehouse/logs/
+warehouse/dbt_packages/
+
+# Local dbt connection settings
+warehouse/profiles.yml

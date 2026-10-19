@@ -1,0 +1,16 @@
+name: retail_warehouse
+version: "1.0.0"
+config-version: 2
+
+profile: retail_warehouse
+
+model-paths: ["models"]
+
+clean-targets:
+  - target
+  - dbt_packages
+
+models:
+  retail_warehouse:
+    staging:
+      +materialized: view
