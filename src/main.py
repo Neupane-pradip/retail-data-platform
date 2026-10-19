@@ -11,127 +11,115 @@ from customers import (
 from extract import read_orders
 from load import load_orders
 from logging_config import configure_logging
+from products import (
+    load_products,
+    read_products,
+    validate_product,
+)
 from reject import save_rejections
 from validate import validate_order
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-CUSTOMERS_FILE = PROJECT_ROOT / "data" / "raw" / "customers.csv"
-ORDERS_FILE = PROJECT_ROOT / "data" / "raw" / "orders.csv"
-
-CUSTOMER_REJECTIONS_FILE = (
-    PROJECT_ROOT / "data" / "rejected" / "customers_rejected.json"
-)
-
-ORDER_REJECTIONS_FILE = (
-    PROJECT_ROOT / "data" / "rejected" / "orders_rejected.json"
-)
-
+RAW_DIRECTORY = PROJECT_ROOT / "data" / "raw"
+REJECTED_DIRECTORY = PROJECT_ROOT / "data" / "rejected"
 LOG_FILE = PROJECT_ROOT / "logs" / "pipeline.log"
 
 logger = logging.getLogger("retail_pipeline")
 
 
-def run_customer_pipeline() -> None:
-    """Read, validate, and load customers."""
-    logger.info("Reading customers from %s", CUSTOMERS_FILE)
+def process_dataset(
+    name,
+    filename,
+    reader,
+    validator,
+    loader,
+    changed_label,
+    skipped_label,
+    raw_record_key,
+):
+    """Run the common extraction, validation, and loading steps."""
+    input_path = RAW_DIRECTORY / filename
+    rejection_path = REJECTED_DIRECTORY / f"{name}_rejected.json"
 
-    rows = read_customers(CUSTOMERS_FILE)
+    logger.info("Reading %s from %s", name, input_path)
 
-    valid_customers = []
-    rejected_customers = []
+    rows = reader(input_path)
+    valid_records = []
+    rejected_records = []
 
     for record_number, row in enumerate(rows, start=1):
         try:
-            customer = validate_customer(row)
+            record = validator(row)
 
         except ValueError as error:
-            rejected_customers.append(
+            rejected_records.append(
                 {
                     "record_number": record_number,
-                    "raw_customer": row,
+                    raw_record_key: row,
                     "reason": str(error),
                 }
             )
 
             logger.warning(
-                "Rejected customer record %s: %s",
+                "Rejected %s record %s: %s",
+                name,
                 record_number,
                 error,
             )
 
         else:
-            valid_customers.append(customer)
+            valid_records.append(record)
 
-    save_rejections(
-        rejected_customers,
-        CUSTOMER_REJECTIONS_FILE,
-    )
+    save_rejections(rejected_records, rejection_path)
 
-    logger.info("Customers read: %s", len(rows))
-    logger.info("Valid customers: %s", len(valid_customers))
-    logger.info("Rejected customers: %s", len(rejected_customers))
+    logger.info("%s read: %s", name.capitalize(), len(rows))
+    logger.info("Valid %s: %s", name, len(valid_records))
+    logger.info("Rejected %s: %s", name, len(rejected_records))
+    logger.info("Rejection report saved to %s", rejection_path)
 
-    inserted_count = load_customers(valid_customers)
-    skipped_count = len(valid_customers) - inserted_count
+    changed_count = loader(valid_records)
+    skipped_count = len(valid_records) - changed_count
 
-    logger.info("Customers inserted: %s", inserted_count)
-    logger.info("Existing customer IDs skipped: %s", skipped_count)
-
-
-def run_order_pipeline() -> None:
-    """Read, validate, and load orders."""
-    logger.info("Reading orders from %s", ORDERS_FILE)
-
-    rows = read_orders(ORDERS_FILE)
-
-    valid_orders = []
-    rejected_orders = []
-
-    for record_number, row in enumerate(rows, start=1):
-        try:
-            order = validate_order(row)
-
-        except ValueError as error:
-            rejected_orders.append(
-                {
-                    "record_number": record_number,
-                    "raw_order": row,
-                    "reason": str(error),
-                }
-            )
-
-            logger.warning(
-                "Rejected order record %s: %s",
-                record_number,
-                error,
-            )
-
-        else:
-            valid_orders.append(order)
-
-    save_rejections(
-        rejected_orders,
-        ORDER_REJECTIONS_FILE,
-    )
-
-    logger.info("Orders read: %s", len(rows))
-    logger.info("Valid orders: %s", len(valid_orders))
-    logger.info("Rejected orders: %s", len(rejected_orders))
-
-    changed_count = load_orders(valid_orders)
-    skipped_count = len(valid_orders) - changed_count
-
-    logger.info("Orders inserted or updated: %s", changed_count)
-    logger.info("Equal or older versions skipped: %s", skipped_count)
+    logger.info("%s: %s", changed_label, changed_count)
+    logger.info("%s: %s", skipped_label, skipped_count)
 
 
 def run_pipeline() -> None:
     logger.info("Retail data pipeline started")
 
-    run_customer_pipeline()
-    run_order_pipeline()
+    process_dataset(
+        name="customers",
+        filename="customers.csv",
+        reader=read_customers,
+        validator=validate_customer,
+        loader=load_customers,
+        changed_label="Customers inserted",
+        skipped_label="Existing customer IDs skipped",
+        raw_record_key="raw_customer",
+    )
+
+    process_dataset(
+        name="products",
+        filename="products.csv",
+        reader=read_products,
+        validator=validate_product,
+        loader=load_products,
+        changed_label="Products inserted",
+        skipped_label="Existing product IDs skipped",
+        raw_record_key="raw_product",
+    )
+
+    process_dataset(
+        name="orders",
+        filename="orders.csv",
+        reader=read_orders,
+        validator=validate_order,
+        loader=load_orders,
+        changed_label="Orders inserted or updated",
+        skipped_label="Equal or older versions skipped",
+        raw_record_key="raw_order",
+    )
 
     logger.info("Retail data pipeline finished successfully")
 
