@@ -60,7 +60,8 @@ jobs:
           for migration in \
             sql/001_create_orders.sql \
             sql/002_add_source_updated_at.sql \
-            sql/004_create_customers.sql
+            sql/004_create_customers.sql \
+            sql/005_add_orders_customer_fk.sql
           do
             echo "Applying $migration"
 
