@@ -1,0 +1,98 @@
+version: 2
+
+models:
+  - name: dim_customers
+    description: "Current customer attributes; one row per customer."
+
+    columns:
+      - name: customer_id
+        data_tests:
+          - not_null
+          - unique
+
+      - name: customer_name
+        data_tests:
+          - not_null
+
+      - name: city
+        data_tests:
+          - not_null
+
+  - name: dim_products
+    description: "Current product attributes; one row per product."
+
+    columns:
+      - name: product_id
+        data_tests:
+          - not_null
+          - unique
+
+      - name: product_name
+        data_tests:
+          - not_null
+
+      - name: category
+        data_tests:
+          - not_null
+
+      - name: current_price_eur
+        data_tests:
+          - not_null
+
+  - name: fct_order_items
+    description: "One row per order line, using its actual selling price."
+
+    columns:
+      - name: order_id
+        data_tests:
+          - not_null
+
+      - name: line_number
+        data_tests:
+          - not_null
+
+      - name: customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_id
+
+      - name: product_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_products')
+                field: product_id
+
+      - name: order_date
+        data_tests:
+          - not_null
+
+      - name: order_status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - completed
+                  - cancelled
+                  - refunded
+
+      - name: source_updated_at
+        data_tests:
+          - not_null
+
+      - name: quantity
+        data_tests:
+          - not_null
+
+      - name: unit_price_eur
+        data_tests:
+          - not_null
+
+      - name: line_value_eur
+        data_tests:
+          - not_null

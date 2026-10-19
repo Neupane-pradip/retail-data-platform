@@ -5,6 +5,7 @@ config-version: 2
 profile: retail_warehouse
 
 model-paths: ["models"]
+test-paths: ["tests"]
 
 clean-targets:
   - target
@@ -14,3 +15,6 @@ models:
   retail_warehouse:
     staging:
       +materialized: view
+
+    marts:
+      +materialized: table
