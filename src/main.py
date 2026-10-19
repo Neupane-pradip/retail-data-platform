@@ -11,6 +11,11 @@ from customers import (
 from extract import read_orders
 from load import load_orders
 from logging_config import configure_logging
+from order_items import (
+    load_order_items,
+    read_order_items,
+    validate_order_item,
+)
 from products import (
     load_products,
     read_products,
@@ -38,7 +43,7 @@ def process_dataset(
     skipped_label,
     raw_record_key,
 ):
-    """Run the common extraction, validation, and loading steps."""
+    """Read, validate, report rejections, and load one dataset."""
     input_path = RAW_DIRECTORY / filename
     rejection_path = REJECTED_DIRECTORY / f"{name}_rejected.json"
 
@@ -119,6 +124,17 @@ def run_pipeline() -> None:
         changed_label="Orders inserted or updated",
         skipped_label="Equal or older versions skipped",
         raw_record_key="raw_order",
+    )
+
+    process_dataset(
+        name="order_items",
+        filename="order_items.csv",
+        reader=read_order_items,
+        validator=validate_order_item,
+        loader=load_order_items,
+        changed_label="Order items inserted",
+        skipped_label="Existing order lines skipped",
+        raw_record_key="raw_order_item",
     )
 
     logger.info("Retail data pipeline finished successfully")
