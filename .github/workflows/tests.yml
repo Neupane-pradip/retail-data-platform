@@ -57,19 +57,20 @@ jobs:
         env:
           PGPASSWORD: temporary_ci_password
         run: |
-          docker exec -i \
-            -e PGPASSWORD="$PGPASSWORD" \
-            "${{ job.services.postgres.id }}" \
-            psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-            -v ON_ERROR_STOP=1 \
-            < sql/001_create_orders.sql
+          for migration in \
+            sql/001_create_orders.sql \
+            sql/002_add_source_updated_at.sql \
+            sql/004_create_customers.sql
+          do
+            echo "Applying $migration"
 
-          docker exec -i \
-            -e PGPASSWORD="$PGPASSWORD" \
-            "${{ job.services.postgres.id }}" \
-            psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-            -v ON_ERROR_STOP=1 \
-            < sql/002_add_source_updated_at.sql
+            docker exec -i \
+              -e PGPASSWORD="$PGPASSWORD" \
+              "${{ job.services.postgres.id }}" \
+              psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+              -v ON_ERROR_STOP=1 \
+              < "$migration"
+          done
 
       - name: Run all tests
         run: python -m unittest discover -s tests -v
