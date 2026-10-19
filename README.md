@@ -1,4 +1,4 @@
-# Retail Data Platform
+﻿# Retail Data Platform
 
 A data engineering learning project that processes retail orders from
 CSV files and stores validated records in PostgreSQL.
@@ -86,6 +86,15 @@ The current suite contains 10 passing tests covering:
 
 Database tests use uniquely named synthetic orders and clean them up afterward.
 
+### Continuous integration
+
+GitHub Actions runs the tests on every push and pull request.
+Each run starts a temporary PostgreSQL database, applies the schema
+migrations, and runs all validation and database integration tests.
+
+All 10 tests have passed on GitHub, confirming that the tested components
+work in a fresh environment outside my computer.
+
 ### SQL reporting and reconciliation
 
 Saved SQL queries report:
@@ -137,11 +146,10 @@ revenue or payment-event history.
 ## What I am learning
 
 Python data processing, SQL, database constraints, transactions, upserts,
-source version handling, logging, testing, and data reconciliation.
+source version handling, logging, testing, continuous integration, and data reconciliation.
 
 ## Next steps
 
-- Automate tests with GitHub Actions.
 - Add more timestamp-validation tests.
 - Detect conflicting source records.
 - Automate reconciliation.
